@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickPlan - Pro Floor Planner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none;
+        }
+        canvas {
+            touch-action: none;
+        }
+        .tool-btn {
+            transition: all 0.2s;
+        }
+        .tool-btn:active {
+            transform: scale(0.95);
+        }
+        .tool-btn.active {
+            background-color: #eff6ff;
+            border-color: #3b82f6;
+            color: #2563eb;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 px-4 py-3 flex justify-between items-center shadow-sm z-20">
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 text-white p-2 rounded-lg">
+                    <i class="fa-solid fa-drafting-compass"></i>
+                </div>
+                <div>
+                    <!-- Editable Plan Name -->
+                    <input type="text" id="plan-title-input" value="Untitled Project" onchange="app.saveState()"
+                           class="font-bold text-slate-800 text-lg leading-tight bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 focus:outline-none transition-colors w-48 px-1"
+                           title="Click to rename project">
+                    <p class="text-xs text-slate-500 px-1">Design. Measure. Export.</p>
+                </div>
+            </div>
+            <div class="h-8 w-px bg-slate-200 mx-1"></div>
+
+            <!-- File Controls (Save/Load) -->
+            <div class="flex gap-1">
+                <button onclick="app.saveProject()" class="tool-btn px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100" title="Save Project (JSON)">
+                    <i class="fa-regular fa-floppy-disk"></i>
+                </button>
+                <label class="tool-btn px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100 cursor-pointer" title="Load Project (JSON)">
+                    <i class="fa-regular fa-folder-open"></i>
+                    <input type="file" id="file-upload" class="hidden" accept=".json" onchange="app.loadProject(this)">
+                </label>
+                 <button onclick="app.exportCSV()" class="tool-btn px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100" title="Export Material List (CSV)">
+                    <i class="fa-solid fa-table-list"></i>
+                </button>
+            </div>
+
+            <div class="h-8 w-px bg-slate-200 mx-1"></div>
+
+            <!-- Tools -->
+            <div class="flex gap-2">
+                <button id="tool-select" onclick="app.setTool('select')" class="tool-btn active px-3 py-1.5 rounded-md border border-transparent text-sm font-medium text-slate-600 hover:bg-slate-100" title="Select & Move (V)">
+                    <i class="fa-solid fa-arrow-pointer mr-2"></i>
+                </button>
+                <button id="tool-pan" onclick="app.setTool('pan')" class="tool-btn px-3 py-1.5 rounded-md border border-transparent text-sm font-medium text-slate-600 hover:bg-slate-100" title="Pan Canvas (Space+Drag)">
+                    <i class="fa-solid fa-hand mr-2"></i>
+                </button>
+                <button id="tool-measure" onclick="app.setTool('measure')" class="tool-btn px-3 py-1.5 rounded-md border border-transparent text-sm font-medium text-slate-600 hover:bg-slate-100" title="Measure Distance (M)">
+                    <i class="fa-solid fa-ruler-combined mr-2"></i>
+                </button>
+                <button id="tool-text" onclick="app.setTool('text')" class="tool-btn px-3 py-1.5 rounded-md border border-transparent text-sm font-medium text-slate-600 hover:bg-slate-100" title="Add Text Label (T)">
+                    <i class="fa-solid fa-font mr-2"></i>
+                </button>
+            </div>
+
+            <div class="h-8 w-px bg-slate-200 mx-1"></div>
+
+            <!-- History Controls -->
+            <div class="flex gap-1">
+                <button onclick="app.undo()" class="tool-btn px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100 disabled:opacity-30" title="Undo (Ctrl+Z)">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </button>
+                <button onclick="app.redo()" class="tool-btn px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100 disabled:opacity-30" title="Redo (Ctrl+Y)">
+                    <i class="fa-solid fa-rotate-right"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="flex gap-3">
+            <button onclick="app.clearCanvas()" class="tool-btn px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-medium border border-transparent hover:border-slate-200">
+                <i class="fa-solid fa-trash-can mr-2"></i>Clear
+            </button>
+            <button onclick="app.downloadPlan()" class="tool-btn px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-sm font-medium shadow-sm">
+                <i class="fa-solid fa-download mr-2"></i>Export
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- Sidebar Tools -->
+        <aside class="w-72 bg-white border-r border-slate-200 flex flex-col z-10 shadow-sm overflow-y-auto flex-shrink-0">
+            <div class="p-5 space-y-6">
+
+                <!-- Palette -->
+                <div>
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Add Room</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="app.addRoom('Living Room', '#e0f2fe')" class="tool-btn flex items-center gap-3 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-left">
+                            <div class="w-8 h-8 rounded bg-blue-100 text-blue-500 flex items-center justify-center"><i class="fa-solid fa-couch text-xs"></i></div>
+                            <span class="text-xs font-medium text-slate-700">Living</span>
+                        </button>
+                        <button onclick="app.addRoom('Kitchen', '#fff7ed')" class="tool-btn flex items-center gap-3 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-left">
+                            <div class="w-8 h-8 rounded bg-orange-100 text-orange-500 flex items-center justify-center"><i class="fa-solid fa-kitchen-set text-xs"></i></div>
+                            <span class="text-xs font-medium text-slate-700">Kitchen</span>
+                        </button>
+                        <button onclick="app.addRoom('Bedroom', '#f0fdf4')" class="tool-btn flex items-center gap-3 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-left">
+                            <div class="w-8 h-8 rounded bg-green-100 text-green-500 flex items-center justify-center"><i class="fa-solid fa-bed text-xs"></i></div>
+                            <span class="text-xs font-medium text-slate-700">Bedroom</span>
+                        </button>
+                        <button onclick="app.addRoom('Bathroom', '#f5f3ff')" class="tool-btn flex items-center gap-3 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-left">
+                            <div class="w-8 h-8 rounded bg-violet-100 text-violet-500 flex items-center justify-center"><i class="fa-solid fa-bath text-xs"></i></div>
+                            <span class="text-xs font-medium text-slate-700">Bath</span>
+                        </button>
+                        <button onclick="app.addRoom('Dining', '#fdf2f8')" class="tool-btn flex items-center gap-3 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-left">
+                            <div class="w-8 h-8 rounded bg-pink-100 text-pink-500 flex items-center justify-center"><i class="fa-solid fa-utensils text-xs"></i></div>
+                            <span class="text-xs font-medium text-slate-700">Dining</span>
+                        </button>
+                        <button onclick="app.addRoom('Generic', '#f1f5f9')" class="tool-btn flex items-center gap-3 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-left">
+                            <div class="w-8 h-8 rounded bg-slate-100 text-slate-500 flex items-center justify-center"><i class="fa-solid fa-square text-xs"></i></div>
+                            <span class="text-xs font-medium text-slate-700">Empty</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Property Editor -->
+                <div id="property-editor" class="opacity-50 pointer-events-none transition-opacity">
+                    <div class="flex justify-between items-end mb-3">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Properties</h3>
+                        <span id="prop-id" class="text-[10px] text-slate-300 font-mono">#ID</span>
+                    </div>
+
+                    <!-- Room Properties -->
+                    <div id="room-props" class="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <!-- Name -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Room Name</label>
+                            <input type="text" id="prop-name" oninput="app.updateProp('name', this.value)" onchange="app.saveState()" class="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:border-blue-500 focus:outline-none" placeholder="e.g. Master Bed">
+                        </div>
+
+                        <!-- Editable Dimensions (Precision Control) -->
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-[10px] text-slate-500 mb-1">Width (ft)</label>
+                                <input type="number" id="prop-w-input" onchange="app.manualResize('w', this.value)" class="w-full px-2 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded focus:border-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-500 mb-1">Height (ft)</label>
+                                <input type="number" id="prop-h-input" onchange="app.manualResize('h', this.value)" class="w-full px-2 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded focus:border-blue-500 outline-none">
+                            </div>
+                        </div>
+
+                        <!-- Rotation -->
+                         <button onclick="app.rotateSelected()" class="w-full py-1.5 bg-white border border-slate-300 text-slate-600 text-xs font-medium rounded hover:bg-slate-50 flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-rotate-right"></i> Rotate 90°
+                        </button>
+
+                        <!-- Wall Thickness -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Wall Thickness (ft)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="range" id="prop-wall-slider" min="0" max="2" step="0.1" oninput="app.updateProp('wall', this.value)" onchange="app.saveState()" class="flex-1 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                                <input type="number" id="prop-wall-input" min="0" max="5" step="0.1" oninput="app.updateProp('wall', this.value)" onchange="app.saveState()" class="w-16 px-2 py-1 text-sm border border-slate-300 rounded text-right">
+                            </div>
+                        </div>
+
+                        <!-- Color Picker -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-2">Room Color</label>
+                            <div class="grid grid-cols-4 gap-2" id="color-palette">
+                                <!-- Generated by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Calculated Areas -->
+                        <div class="pt-3 border-t border-slate-200">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-xs text-slate-500">Total Area (Outer)</span>
+                                <span id="prop-area-total" class="text-xs font-bold text-slate-400">0 sqft</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs text-slate-500">Inner Area (Liveable)</span>
+                                <span id="prop-area-inner" class="text-sm font-bold text-green-600">0 sqft</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Measurement Properties -->
+                    <div id="measure-props" class="hidden space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                         <div class="bg-white p-3 rounded border border-slate-200 text-center">
+                            <span class="block text-xs text-slate-400 uppercase tracking-wider mb-1">Measured Distance</span>
+                            <span id="prop-dist" class="text-xl font-bold text-slate-700">-</span>
+                        </div>
+                        <p class="text-xs text-slate-500 text-center">Measurement line is selected.</p>
+                    </div>
+
+                    <!-- Text Properties -->
+                    <div id="text-props" class="hidden space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Label Text</label>
+                            <input type="text" id="prop-text-content" oninput="app.updateProp('text', this.value)" onchange="app.saveState()" class="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:border-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Font Size (px)</label>
+                            <input type="number" id="prop-text-size" oninput="app.updateProp('textSize', this.value)" onchange="app.saveState()" class="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:border-blue-500 outline-none" min="8" max="72">
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <button onclick="app.deleteSelected()" class="w-full py-2 bg-white border border-red-200 text-red-500 text-xs font-medium rounded hover:bg-red-50 hover:border-red-300 transition-colors">
+                            Delete Selected
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+
+        <!-- Canvas Container -->
+        <main class="flex-1 relative bg-slate-200 overflow-hidden" id="canvas-container">
+            <canvas id="floorCanvas" class="block"></canvas>
+
+            <!-- Zoom Controls -->
+            <div class="absolute bottom-6 right-6 flex flex-col gap-2 z-30">
+                <button onclick="app.zoomIn()" class="w-10 h-10 bg-white rounded-lg shadow-md flex items-center justify-center text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                    <i class="fa-solid fa-plus"></i>
+                </button>
+                <button onclick="app.resetView()" class="w-10 h-10 bg-white rounded-lg shadow-md flex items-center justify-center text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors text-xs font-bold">
+                    100%
+                </button>
+                <button onclick="app.zoomOut()" class="w-10 h-10 bg-white rounded-lg shadow-md flex items-center justify-center text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                    <i class="fa-solid fa-minus"></i>
+                </button>
+            </div>
+
+            <!-- Floating Tip -->
+            <div id="canvas-tip" class="absolute bottom-6 left-6 bg-slate-800/90 text-white px-3 py-2 rounded shadow-lg text-xs pointer-events-none select-none transition-opacity opacity-0 z-30">
+                Tip text
+            </div>
+        </main>
+    </div>
+
+    <script>
+        /**
+         * QuickPlan Pro Logic - V5 (Text, Save/Load, Precision)
+         */
+        const COLORS = ['#e0f2fe', '#fff7ed', '#f0fdf4', '#f5f3ff', '#fdf2f8', '#f1f5f9', '#fef3c7', '#fee2e2'];
+        const RULER_SIZE = 30;
+        const SNAP_DIST = 15; // Pixels to snap
+
+        class FloorPlanApp {
+            constructor() {
+                this.canvas = document.getElementById('floorCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.container = document.getElementById('canvas-container');
+
+                // Config
+                this.pixelsPerFoot = 25;
+                this.gridSize = 25;
+                this.currentTool = 'select';
+
+                // Viewport State
+                this.scale = 1.0;
+                this.panX = RULER_SIZE + 20;
+                this.panY = RULER_SIZE + 20;
+                this.isPanning = false;
+                this.panStart = { x: 0, y: 0 };
+
+                // Content State
+                this.rooms = [];
+                this.measurements = [];
+                this.texts = [];
+
+                // History State
+                this.history = [];
+                this.historyStep = -1;
+
+                // Selection State
+                this.selectedObject = null;
+                this.selectionType = null;
+
+                // Interaction State
+                this.isDragging = false;
+                this.isResizing = false;
+                this.isMeasuring = false;
+                this.isSpacePressed = false;
+                this.isDirty = false;
+
+                this.dragOffset = { x: 0, y: 0 };
+                this.mousePos = { x: 0, y: 0 };
+
+                this.measureStart = null;
+                this.measureCurrent = null;
+                this.resizeHandle = null;
+                this.activeSnaps = []; // For drawing guide lines
+
+                // UI Refs
+                this.propEditor = document.getElementById('property-editor');
+                this.roomProps = document.getElementById('room-props');
+                this.measureProps = document.getElementById('measure-props');
+                this.textProps = document.getElementById('text-props');
+
+                this.propName = document.getElementById('prop-name');
+                this.propWInput = document.getElementById('prop-w-input');
+                this.propHInput = document.getElementById('prop-h-input');
+                this.propWallSlider = document.getElementById('prop-wall-slider');
+                this.propWallInput = document.getElementById('prop-wall-input');
+                this.propAreaTotal = document.getElementById('prop-area-total');
+                this.propAreaInner = document.getElementById('prop-area-inner');
+                this.propDist = document.getElementById('prop-dist');
+
+                this.propTextContent = document.getElementById('prop-text-content');
+                this.propTextSize = document.getElementById('prop-text-size');
+
+                this.tipEl = document.getElementById('canvas-tip');
+                this.titleInput = document.getElementById('plan-title-input');
+
+                this.init();
+            }
+
+            init() {
+                this.initPalette();
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+
+                // Auto Load
+                const saved = localStorage.getItem('quickplan_autosave');
+                if(saved) {
+                    try {
+                        const data = JSON.parse(saved);
+                        this.loadData(data);
+                        console.log("Auto-saved state loaded");
+                    } catch(e) { console.error("Failed to load autosave"); }
+                } else {
+                    this.addRoom('Living Room', '#e0f2fe', 100, 100, 14, 12);
+                    this.saveState();
+                }
+
+                // Mouse / Touch Events
+                this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
+                window.addEventListener('mousemove', this.handleMouseMove.bind(this));
+                window.addEventListener('mouseup', this.handleMouseUp.bind(this));
+                this.canvas.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
+
+                this.canvas.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    if(e.touches.length > 1) return;
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousedown', { clientX: touch.clientX, clientY: touch.clientY });
+                    this.canvas.dispatchEvent(mouseEvent);
+                }, {passive: false});
+
+                // Keyboard
+                window.addEventListener('keydown', (e) => {
+                    if (e.code === 'Space') {
+                        this.isSpacePressed = true;
+                        this.updateCursor();
+                    }
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                        e.preventDefault();
+                        if (e.shiftKey) this.redo();
+                        else this.undo();
+                    }
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+                        e.preventDefault();
+                        this.redo();
+                    }
+                    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedObject) {
+                        if (document.activeElement.tagName !== 'INPUT') {
+                            this.deleteSelected();
+                        }
+                    }
+                });
+
+                window.addEventListener('keyup', (e) => {
+                    if (e.code === 'Space') {
+                        this.isSpacePressed = false;
+                        this.updateCursor();
+                    }
+                });
+
+                this.animate();
+            }
+
+            initPalette() {
+                const container = document.getElementById('color-palette');
+                COLORS.forEach(c => {
+                    const btn = document.createElement('div');
+                    btn.className = 'w-full aspect-square rounded cursor-pointer border border-slate-200 hover:scale-110 transition-transform shadow-sm';
+                    btn.style.backgroundColor = c;
+                    btn.onclick = () => {
+                        this.updateProp('color', c);
+                        this.saveState();
+                    };
+                    container.appendChild(btn);
+                });
+            }
+
+            resizeCanvas() {
+                this.canvas.width = this.container.clientWidth;
+                this.canvas.height = this.container.clientHeight;
+                this.draw();
+            }
+
+            // --- Data Management (Save/Load/Auto) ---
+
+            saveState() {
+                if (this.historyStep < this.history.length - 1) {
+                    this.history = this.history.slice(0, this.historyStep + 1);
+                }
+
+                const state = {
+                    rooms: JSON.parse(JSON.stringify(this.rooms)),
+                    measurements: JSON.parse(JSON.stringify(this.measurements)),
+                    texts: JSON.parse(JSON.stringify(this.texts)),
+                    title: this.titleInput.value
+                };
+
+                this.history.push(state);
+                this.historyStep++;
+
+                if (this.history.length > 50) {
+                    this.history.shift();
+                    this.historyStep--;
+                }
+
+                // Auto-save
+                localStorage.setItem('quickplan_autosave', JSON.stringify(state));
+            }
+
+            undo() {
+                if (this.historyStep > 0) {
+                    this.historyStep--;
+                    this.loadData(this.history[this.historyStep]);
+                }
+            }
+
+            redo() {
+                if (this.historyStep < this.history.length - 1) {
+                    this.historyStep++;
+                    this.loadData(this.history[this.historyStep]);
+                }
+            }
+
+            loadData(state) {
+                this.rooms = JSON.parse(JSON.stringify(state.rooms));
+                this.measurements = JSON.parse(JSON.stringify(state.measurements));
+                this.texts = JSON.parse(JSON.stringify(state.texts || []));
+                this.titleInput.value = state.title || "Untitled Project";
+                this.selectObject(null);
+                this.draw();
+            }
+
+            saveProject() {
+                const data = {
+                    version: 1,
+                    title: this.titleInput.value,
+                    rooms: this.rooms,
+                    measurements: this.measurements,
+                    texts: this.texts
+                };
+                const blob = new Blob([JSON.stringify(data, null, 2)], {type : 'application/json'});
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `${this.titleInput.value.replace(/\s+/g,'_')}.json`;
+                link.click();
+            }
+
+            loadProject(input) {
+                const file = input.files[0];
+                if(!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        this.rooms = data.rooms || [];
+                        this.measurements = data.measurements || [];
+                        this.texts = data.texts || [];
+                        this.titleInput.value = data.title || "Untitled Project";
+                        this.selectObject(null);
+                        this.saveState();
+                        this.draw();
+                    } catch(err) {
+                        alert("Invalid file format");
+                    }
+                };
+                reader.readAsText(file);
+                input.value = ''; // Reset
+            }
+
+            exportCSV() {
+                let csv = "Room Name,Width (ft),Height (ft),Area (sqft)\n";
+                this.rooms.forEach(r => {
+                    const w = (r.w/this.pixelsPerFoot).toFixed(1);
+                    const h = (r.h/this.pixelsPerFoot).toFixed(1);
+                    const area = (w*h).toFixed(1);
+                    csv += `${r.label},${w},${h},${area}\n`;
+                });
+                const blob = new Blob([csv], {type: 'text/csv'});
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `${this.titleInput.value}_Materials.csv`;
+                link.click();
+            }
+
+            // --- Viewport ---
+            zoomIn() { this.scale = Math.min(this.scale * 1.2, 5.0); this.draw(); }
+            zoomOut() { this.scale = Math.max(this.scale / 1.2, 0.2); this.draw(); }
+            resetView() { this.scale = 1.0; this.panX = RULER_SIZE + 20; this.panY = RULER_SIZE + 20; this.draw(); }
+
+            handleWheel(e) {
+                e.preventDefault();
+                const zoomFactor = 1 + (e.deltaY > 0 ? -1 : 1) * 0.1;
+                const rect = this.canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                const wx = (mouseX - this.panX) / this.scale;
+                const wy = (mouseY - this.panY) / this.scale;
+
+                this.scale = Math.min(Math.max(this.scale * zoomFactor, 0.2), 5.0);
+                this.panX = mouseX - wx * this.scale;
+                this.panY = mouseY - wy * this.scale;
+                this.draw();
+            }
+
+            // --- Tools ---
+
+            setTool(tool) {
+                this.currentTool = tool;
+                this.selectObject(null);
+
+                const ids = ['tool-select', 'tool-pan', 'tool-measure', 'tool-text'];
+                ids.forEach(id => {
+                    const el = document.getElementById(id);
+                    // Extract tool name from id string
+                    const tName = id.replace('tool-', '');
+                    el.className = `tool-btn px-3 py-1.5 rounded-md border border-transparent text-sm font-medium ${tool === tName ? 'active' : 'text-slate-600 hover:bg-slate-100'}`;
+                });
+
+                this.updateCursor();
+                if (tool === 'measure') this.showTip("Click & Drag to measure. Use Space to Pan.");
+                else if (tool === 'pan') this.showTip("Drag to move the canvas.");
+                else if (tool === 'text') this.showTip("Click anywhere to place text.");
+                else this.hideTip();
+                this.draw();
+            }
+
+            updateCursor() {
+                if (this.isSpacePressed || this.currentTool === 'pan') {
+                    this.canvas.style.cursor = this.isPanning ? 'grabbing' : 'grab';
+                } else if (this.currentTool === 'measure' || this.currentTool === 'text') {
+                    this.canvas.style.cursor = 'crosshair';
+                } else {
+                    this.canvas.style.cursor = 'default';
+                }
+            }
+
+            showTip(text) { this.tipEl.textContent = text; this.tipEl.style.opacity = '1'; }
+            hideTip() { this.tipEl.style.opacity = '0'; }
+
+            // --- Logic ---
+
+            addRoom(label, color, x, y, wFt, hFt) {
+                const widthFt = wFt || 12;
+                const heightFt = hFt || 10;
+                let startX, startY;
+
+                if (x === undefined || y === undefined) {
+                    const screenCX = this.canvas.width / 2;
+                    const screenCY = this.canvas.height / 2;
+                    const worldPos = this.screenToWorld(screenCX, screenCY);
+                    startX = worldPos.x - (widthFt * this.pixelsPerFoot / 2);
+                    startY = worldPos.y - (heightFt * this.pixelsPerFoot / 2);
+                } else {
+                    startX = x;
+                    startY = y;
+                }
+
+                const room = {
+                    id: Date.now(),
+                    x: this.snap(startX),
+                    y: this.snap(startY),
+                    w: widthFt * this.pixelsPerFoot,
+                    h: heightFt * this.pixelsPerFoot,
+                    label: label,
+                    color: color,
+                    wallThickness: 0.5
+                };
+                this.rooms.push(room);
+                this.saveState();
+                this.setTool('select');
+                this.selectObject(room, 'room');
+                this.draw();
+            }
+
+            addText(x, y) {
+                const text = prompt("Enter text label:", "New Label");
+                if(text) {
+                    const t = {
+                        id: Date.now(),
+                        x: x,
+                        y: y,
+                        text: text,
+                        fontSize: 14,
+                        color: '#334155'
+                    };
+                    this.texts.push(t);
+                    this.saveState();
+                    this.setTool('select');
+                    this.selectObject(t, 'text');
+                }
+            }
+
+            manualResize(dim, val) {
+                if(!this.selectedObject || this.selectionType !== 'room') return;
+                const r = this.selectedObject;
+                const num = parseFloat(val);
+                if(isNaN(num) || num <= 0) return;
+
+                if(dim === 'w') r.w = num * this.pixelsPerFoot;
+                if(dim === 'h') r.h = num * this.pixelsPerFoot;
+
+                this.saveState();
+                this.updatePropertyUI();
+                this.draw();
+            }
+
+            rotateSelected() {
+                if(!this.selectedObject || this.selectionType !== 'room') return;
+                const r = this.selectedObject;
+                // Swap W and H
+                const temp = r.w;
+                r.w = r.h;
+                r.h = temp;
+                this.saveState();
+                this.updatePropertyUI();
+                this.draw();
+            }
+
+            updateProp(key, val) {
+                if (!this.selectedObject) return;
+
+                if(this.selectionType === 'room') {
+                    if (key === 'name') this.selectedObject.label = val;
+                    if (key === 'wall') {
+                        const num = parseFloat(val);
+                        if (!isNaN(num)) {
+                            this.selectedObject.wallThickness = num;
+                            this.propWallSlider.value = num;
+                            this.propWallInput.value = num;
+                        }
+                    }
+                    if (key === 'color') this.selectedObject.color = val;
+                }
+
+                if(this.selectionType === 'text') {
+                    if(key === 'text') this.selectedObject.text = val;
+                    if(key === 'textSize') this.selectedObject.fontSize = parseInt(val);
+                }
+
+                this.updatePropertyUI();
+                this.draw();
+            }
+
+            deleteSelected() {
+                if (!this.selectedObject) return;
+                if (this.selectionType === 'room') this.rooms = this.rooms.filter(r => r.id !== this.selectedObject.id);
+                else if (this.selectionType === 'measurement') this.measurements = this.measurements.filter(m => m.id !== this.selectedObject.id);
+                else if (this.selectionType === 'text') this.texts = this.texts.filter(t => t.id !== this.selectedObject.id);
+
+                this.selectObject(null);
+                this.saveState();
+                this.draw();
+            }
+
+            clearCanvas() {
+                if (confirm("Clear entire floor plan?")) {
+                    this.rooms = [];
+                    this.measurements = [];
+                    this.texts = [];
+                    this.selectObject(null);
+                    this.saveState();
+                    this.draw();
+                }
+            }
+
+            selectObject(obj, type) {
+                this.selectedObject = obj;
+                this.selectionType = obj ? type : null;
+                this.updatePropertyUI();
+            }
+
+            updatePropertyUI() {
+                if (this.selectedObject) {
+                    this.propEditor.classList.remove('opacity-50', 'pointer-events-none');
+                    document.getElementById('prop-id').textContent = `ID: ${this.selectedObject.id.toString().slice(-4)}`;
+
+                    if (this.selectionType === 'room') {
+                        this.roomProps.classList.remove('hidden');
+                        this.measureProps.classList.add('hidden');
+                        this.textProps.classList.add('hidden');
+
+                        const r = this.selectedObject;
+                        const wFt = r.w / this.pixelsPerFoot;
+                        const hFt = r.h / this.pixelsPerFoot;
+                        const innerW_px = Math.max(0, r.w - (2 * r.wallThickness * this.pixelsPerFoot));
+                        const innerH_px = Math.max(0, r.h - (2 * r.wallThickness * this.pixelsPerFoot));
+                        const innerW_ft = innerW_px / this.pixelsPerFoot;
+                        const innerH_ft = innerH_px / this.pixelsPerFoot;
+
+                        this.propName.value = r.label;
+                        this.propWInput.value = wFt.toFixed(1);
+                        this.propHInput.value = hFt.toFixed(1);
+
+                        this.propWallSlider.value = r.wallThickness;
+                        this.propWallInput.value = r.wallThickness;
+
+                        const totalArea = wFt * hFt;
+                        const innerArea = innerW_ft * innerH_ft;
+                        this.propAreaTotal.textContent = `${totalArea.toFixed(1)} sqft`;
+                        this.propAreaInner.textContent = `${innerArea.toFixed(1)} sqft`;
+                    } else if (this.selectionType === 'measurement') {
+                        this.roomProps.classList.add('hidden');
+                        this.measureProps.classList.remove('hidden');
+                        this.textProps.classList.add('hidden');
+                        const m = this.selectedObject;
+                        const dx = Math.abs(m.x2 - m.x1);
+                        const dy = Math.abs(m.y2 - m.y1);
+                        const distPx = Math.sqrt(dx*dx + dy*dy);
+                        const distFt = (distPx / this.pixelsPerFoot).toFixed(1);
+                        this.propDist.textContent = `${distFt} ft`;
+                    } else if (this.selectionType === 'text') {
+                        this.roomProps.classList.add('hidden');
+                        this.measureProps.classList.add('hidden');
+                        this.textProps.classList.remove('hidden');
+                        this.propTextContent.value = this.selectedObject.text;
+                        this.propTextSize.value = this.selectedObject.fontSize;
+                    }
+                } else {
+                    this.propEditor.classList.add('opacity-50', 'pointer-events-none');
+                }
+            }
+
+            snap(val) { return Math.round(val / this.gridSize) * this.gridSize; }
+
+            getMousePos(evt) {
+                const rect = this.canvas.getBoundingClientRect();
+                return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+            }
+
+            screenToWorld(sx, sy) {
+                return { x: (sx - this.panX) / this.scale, y: (sy - this.panY) / this.scale };
+            }
+
+            // --- Interactions ---
+
+            handleMouseDown(e) {
+                const pos = this.getMousePos(e);
+                this.mousePos = pos;
+
+                if (this.currentTool === 'pan' || this.isSpacePressed || e.button === 1) {
+                    this.isPanning = true;
+                    this.panStart = { x: pos.x - this.panX, y: pos.y - this.panY };
+                    this.canvas.style.cursor = 'grabbing';
+                    return;
+                }
+
+                const world = this.screenToWorld(pos.x, pos.y);
+                const wx = world.x;
+                const wy = world.y;
+
+                if (this.currentTool === 'text') {
+                    this.addText(wx, wy);
+                    return;
+                }
+
+                if (this.currentTool === 'measure') {
+                    this.isMeasuring = true;
+                    this.measureStart = { x: wx, y: wy };
+                    this.measureCurrent = { x: wx, y: wy };
+                    return;
+                }
+
+                if (this.currentTool === 'select') {
+                    // 1. Resize Room
+                    if (this.selectedObject && this.selectionType === 'room') {
+                        const handle = this.getHandleAt(wx, wy, this.selectedObject);
+                        if (handle) {
+                            this.isResizing = true;
+                            this.resizeHandle = handle;
+                            this.isDirty = false;
+                            return;
+                        }
+                    }
+
+                    // 2. Hit Test Text
+                    let clickedText = null;
+                    this.ctx.save();
+                    // Simplistic hit test for text
+                    for(let i = this.texts.length -1; i >=0; i--) {
+                        const t = this.texts[i];
+                        this.ctx.font = `${t.fontSize}px sans-serif`;
+                        const m = this.ctx.measureText(t.text);
+                        const h = t.fontSize;
+                        // Assuming text center/middle drawn
+                        if(wx >= t.x - m.width/2 && wx <= t.x + m.width/2 &&
+                           wy >= t.y - h/2 && wy <= t.y + h/2) {
+                            clickedText = t;
+                            break;
+                        }
+                    }
+                    this.ctx.restore();
+                    if(clickedText) {
+                        this.selectObject(clickedText, 'text');
+                        this.isDragging = true;
+                        this.isDirty = false;
+                        this.dragOffset = { x: wx - clickedText.x, y: wy - clickedText.y };
+                        this.draw();
+                        return;
+                    }
+
+                    // 3. Hit Test Measurement
+                    let clickedMeasure = null;
+                    for (let i = this.measurements.length - 1; i >= 0; i--) {
+                        if (this.isPointNearLine(wx, wy, this.measurements[i])) {
+                            clickedMeasure = this.measurements[i];
+                            break;
+                        }
+                    }
+                    if (clickedMeasure) {
+                        this.selectObject(clickedMeasure, 'measurement');
+                        this.draw();
+                        return;
+                    }
+
+                    // 4. Hit Test Room
+                    let clickedRoom = null;
+                    for (let i = this.rooms.length - 1; i >= 0; i--) {
+                        if (this.isPointInRect(wx, wy, this.rooms[i])) {
+                            clickedRoom = this.rooms[i];
+                            break;
+                        }
+                    }
+
+                    if (clickedRoom) {
+                        this.selectObject(clickedRoom, 'room');
+                        this.isDragging = true;
+                        this.isDirty = false;
+                        this.dragOffset = { x: wx - clickedRoom.x, y: wy - clickedRoom.y };
+                    } else {
+                        if (pos.x > RULER_SIZE && pos.y > RULER_SIZE) this.selectObject(null);
+                    }
+                    this.draw();
+                }
+            }
+
+            handleMouseMove(e) {
+                const pos = this.getMousePos(e);
+                this.mousePos = pos;
+
+                if (this.isPanning) {
+                    this.panX = pos.x - this.panStart.x;
+                    this.panY = pos.y - this.panStart.y;
+                    this.draw();
+                    return;
+                }
+
+                const world = this.screenToWorld(pos.x, pos.y);
+                const wx = world.x;
+                const wy = world.y;
+
+                if (this.isMeasuring) {
+                    this.measureCurrent = { x: wx, y: wy };
+                    this.draw();
+                    return;
+                }
+
+                if (this.currentTool === 'select') {
+                    // Update Cursor
+                    if (!this.isSpacePressed) {
+                        this.canvas.style.cursor = 'default';
+                        if (this.selectedObject && this.selectionType === 'room') {
+                            const handle = this.getHandleAt(wx, wy, this.selectedObject);
+                            if (handle) this.canvas.style.cursor = (handle === 'nw' || handle === 'se') ? 'nwse-resize' : 'nesw-resize';
+                            else if (this.isPointInRect(wx, wy, this.selectedObject)) this.canvas.style.cursor = 'move';
+                        }
+                    }
+
+                    // Drag Logic
+                    if (this.isDragging && this.selectedObject) {
+                        const rawX = wx - this.dragOffset.x;
+                        const rawY = wy - this.dragOffset.y;
+
+                        if(this.selectionType === 'room') {
+                            // Snapping Logic for Room
+                            const snapped = this.getSnappedPos(rawX, rawY, this.selectedObject);
+                            this.selectedObject.x = snapped.x;
+                            this.selectedObject.y = snapped.y;
+                        } else {
+                            // Simple move for others
+                            this.selectedObject.x = rawX;
+                            this.selectedObject.y = rawY;
+                        }
+
+                        this.isDirty = true;
+                        this.updatePropertyUI();
+                        this.draw();
+                    }
+                    // Resize Logic
+                    else if (this.isResizing && this.selectedObject && this.selectionType === 'room') {
+                        const r = this.selectedObject;
+                        const sx = this.snap(wx);
+                        const sy = this.snap(wy);
+                        const min = this.gridSize * 2;
+                        this.isDirty = true;
+
+                        if (this.resizeHandle === 'se') {
+                            r.w = Math.max(min, sx - r.x);
+                            r.h = Math.max(min, sy - r.y);
+                        } else if (this.resizeHandle === 'sw') {
+                            const nw = r.x + r.w - sx;
+                            if (nw >= min) { r.x = sx; r.w = nw; }
+                            r.h = Math.max(min, sy - r.y);
+                        } else if (this.resizeHandle === 'ne') {
+                            r.w = Math.max(min, sx - r.x);
+                            const nh = r.y + r.h - sy;
+                            if (nh >= min) { r.y = sy; r.h = nh; }
+                        } else if (this.resizeHandle === 'nw') {
+                             const nw = r.x + r.w - sx;
+                            if (nw >= min) { r.x = sx; r.w = nw; }
+                             const nh = r.y + r.h - sy;
+                            if (nh >= min) { r.y = sy; r.h = nh; }
+                        }
+                        this.updatePropertyUI();
+                        this.draw();
+                    } else {
+                        this.draw();
+                    }
+                }
+            }
+
+            // --- Smart Snapping ---
+            getSnappedPos(x, y, currentObj) {
+                this.activeSnaps = []; // Clear guide lines
+                let snapX = this.snap(x);
+                let snapY = this.snap(y);
+
+                const threshold = SNAP_DIST / this.scale;
+
+                // Edges of current dragging room (if we were at snapX/snapY)
+                const curL = snapX;
+                const curR = snapX + currentObj.w;
+                const curT = snapY;
+                const curB = snapY + currentObj.h;
+                const curCX = snapX + currentObj.w/2;
+                const curCY = snapY + currentObj.h/2;
+
+                // Compare against all other rooms
+                for(const other of this.rooms) {
+                    if(other.id === currentObj.id) continue;
+
+                    const othL = other.x;
+                    const othR = other.x + other.w;
+                    const othT = other.y;
+                    const othB = other.y + other.h;
+                    const othCX = other.x + other.w/2;
+                    const othCY = other.y + other.h/2;
+
+                    // Horizontal Snaps (Align X)
+                    // Left to Left
+                    if(Math.abs(curL - othL) < threshold) { snapX = othL; this.activeSnaps.push({type:'x', val:othL}); }
+                    // Left to Right
+                    else if(Math.abs(curL - othR) < threshold) { snapX = othR; this.activeSnaps.push({type:'x', val:othR}); }
+                    // Right to Left
+                    else if(Math.abs(curR - othL) < threshold) { snapX = othL - currentObj.w; this.activeSnaps.push({type:'x', val:othL}); }
+                    // Right to Right
+                    else if(Math.abs(curR - othR) < threshold) { snapX = othR - currentObj.w; this.activeSnaps.push({type:'x', val:othR}); }
+                    // Center X
+                    else if(Math.abs(curCX - othCX) < threshold) { snapX = othCX - currentObj.w/2; this.activeSnaps.push({type:'x', val:othCX}); }
+
+                    // Vertical Snaps (Align Y)
+                    // Top to Top
+                    if(Math.abs(curT - othT) < threshold) { snapY = othT; this.activeSnaps.push({type:'y', val:othT}); }
+                    // Top to Bottom
+                    else if(Math.abs(curT - othB) < threshold) { snapY = othB; this.activeSnaps.push({type:'y', val:othB}); }
+                    // Bottom to Top
+                    else if(Math.abs(curB - othT) < threshold) { snapY = othT - currentObj.h; this.activeSnaps.push({type:'y', val:othT}); }
+                    // Bottom to Bottom
+                    else if(Math.abs(curB - othB) < threshold) { snapY = othB - currentObj.h; this.activeSnaps.push({type:'y', val:othB}); }
+                     // Center Y
+                    else if(Math.abs(curCY - othCY) < threshold) { snapY = othCY - currentObj.h/2; this.activeSnaps.push({type:'y', val:othCY}); }
+                }
+
+                return {x: snapX, y: snapY};
+            }
+
+            handleMouseUp() {
+                this.activeSnaps = []; // Clear snap guides
+
+                if (this.isMeasuring && this.measureStart && this.measureCurrent) {
+                    const dist = Math.hypot(this.measureCurrent.x - this.measureStart.x, this.measureCurrent.y - this.measureStart.y);
+                    if (dist > 5) {
+                        const newMeasure = {
+                            id: Date.now(),
+                            x1: this.measureStart.x,
+                            y1: this.measureStart.y,
+                            x2: this.measureCurrent.x,
+                            y2: this.measureCurrent.y
+                        };
+                        this.measurements.push(newMeasure);
+                        this.saveState();
+                        this.selectObject(newMeasure, 'measurement');
+                    }
+                }
+
+                if ((this.isDragging || this.isResizing) && this.isDirty) {
+                    this.saveState();
+                }
+
+                this.isDragging = false;
+                this.isResizing = false;
+                this.isMeasuring = false;
+                this.isPanning = false;
+                this.isDirty = false;
+                this.resizeHandle = null;
+                this.measureStart = null;
+                this.measureCurrent = null;
+                this.updateCursor();
+                this.draw();
+            }
+
+            // --- Hit Testing ---
+            isPointInRect(x, y, r) { return x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h; }
+            getHandleAt(x, y, r) {
+                const s = 10 / this.scale;
+                if (Math.abs(x - r.x) < s && Math.abs(y - r.y) < s) return 'nw';
+                if (Math.abs(x - (r.x + r.w)) < s && Math.abs(y - r.y) < s) return 'ne';
+                if (Math.abs(x - (r.x + r.w)) < s && Math.abs(y - (r.y + r.h)) < s) return 'se';
+                if (Math.abs(x - r.x) < s && Math.abs(y - (r.y + r.h)) < s) return 'sw';
+                return null;
+            }
+            isPointNearLine(px, py, line) {
+                const threshold = 6 / this.scale;
+                const {x1, y1, x2, y2} = line;
+                const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
+                const dot = A * C + B * D;
+                const len_sq = C * C + D * D;
+                let param = -1;
+                if (len_sq !== 0) param = dot / len_sq;
+                let xx, yy;
+                if (param < 0) { xx = x1; yy = y1; }
+                else if (param > 1) { xx = x2; yy = y2; }
+                else { xx = x1 + param * C; yy = y1 + param * D; }
+                const dx = px - xx;
+                const dy = py - yy;
+                return Math.sqrt(dx * dx + dy * dy) < threshold;
+            }
+
+            // --- Drawing ---
+            animate() { requestAnimationFrame(this.animate.bind(this)); }
+
+            draw(isExport = false) {
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                this.ctx.fillStyle = isExport ? '#ffffff' : '#f8fafc';
+                this.ctx.fillRect(0, 0, w, h);
+
+                if (!isExport) this.drawRulers(w, h);
+
+                this.ctx.save();
+                if (!isExport) {
+                    this.ctx.beginPath();
+                    this.ctx.rect(RULER_SIZE, RULER_SIZE, w - RULER_SIZE, h - RULER_SIZE);
+                    this.ctx.clip();
+                    this.ctx.translate(this.panX, this.panY);
+                    this.ctx.scale(this.scale, this.scale);
+                } else {
+                    this.ctx.translate(50, 50);
+                }
+
+                if (!isExport) this.drawGrid(w, h);
+
+                // Draw Guides
+                if(this.activeSnaps.length > 0) {
+                    this.ctx.strokeStyle = '#0ea5e9'; // Sky blue
+                    this.ctx.lineWidth = 1 / this.scale;
+                    this.ctx.setLineDash([4, 4]);
+                    this.ctx.beginPath();
+
+                    // Calculate world bounds for infinite-looking lines
+                    const visibleL = (0 - this.panX)/this.scale;
+                    const visibleR = (w - this.panX)/this.scale;
+                    const visibleT = (0 - this.panY)/this.scale;
+                    const visibleB = (h - this.panY)/this.scale;
+
+                    this.activeSnaps.forEach(s => {
+                        if(s.type === 'x') {
+                            this.ctx.moveTo(s.val, visibleT);
+                            this.ctx.lineTo(s.val, visibleB);
+                        } else {
+                            this.ctx.moveTo(visibleL, s.val);
+                            this.ctx.lineTo(visibleR, s.val);
+                        }
+                    });
+                    this.ctx.stroke();
+                    this.ctx.setLineDash([]);
+                }
+
+                this.rooms.forEach(r => this.drawRoom(r));
+                this.measurements.forEach(m => this.drawMeasurement(m));
+                this.texts.forEach(t => this.drawText(t));
+
+                if (this.isMeasuring && this.measureStart && this.measureCurrent && !isExport) {
+                    this.drawTempMeasureLine();
+                }
+
+                if (this.selectedObject && !isExport) {
+                    if (this.selectionType === 'room') this.drawRoomSelection(this.selectedObject);
+                    else if (this.selectionType === 'measurement') this.drawMeasureSelection(this.selectedObject);
+                    else if (this.selectionType === 'text') this.drawTextSelection(this.selectedObject);
+                }
+                this.ctx.restore();
+            }
+
+            drawRoom(r) {
+                this.ctx.fillStyle = r.color;
+                this.ctx.strokeStyle = '#64748b';
+                this.ctx.lineWidth = 1;
+                this.ctx.fillRect(r.x, r.y, r.w, r.h);
+                this.ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+                const tPx = r.wallThickness * this.pixelsPerFoot;
+                const innerW_px = r.w - (2 * tPx);
+                const innerH_px = r.h - (2 * tPx);
+
+                if (r.wallThickness > 0 && innerW_px > 0 && innerH_px > 0) {
+                    this.ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+                    this.ctx.lineWidth = 1;
+                    this.ctx.strokeRect(r.x + tPx, r.y + tPx, innerW_px, innerH_px);
+                }
+
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                const wFt = Math.round((r.w / this.pixelsPerFoot) * 10) / 10;
+                const hFt = Math.round((r.h / this.pixelsPerFoot) * 10) / 10;
+                const innerW_ft = Math.round((innerW_px / this.pixelsPerFoot) * 10) / 10;
+                const innerH_ft = Math.round((innerH_px / this.pixelsPerFoot) * 10) / 10;
+
+                this.ctx.fillStyle = '#475569';
+                this.ctx.font = '10px sans-serif';
+                this.ctx.fillText(`${wFt}'`, r.x + r.w/2, r.y - 6);
+
+                this.ctx.save();
+                this.ctx.translate(r.x - 6, r.y + r.h/2);
+                this.ctx.rotate(-Math.PI/2);
+                this.ctx.fillText(`${hFt}'`, 0, 0);
+                this.ctx.restore();
+
+                if (r.wallThickness > 0 && innerW_px > 20) {
+                    this.ctx.fillStyle = '#16a34a';
+                    this.ctx.font = '9px sans-serif';
+                    this.ctx.fillText(`${innerW_ft}'`, r.x + r.w/2, r.y + tPx + 8);
+                    this.ctx.save();
+                    this.ctx.translate(r.x + tPx + 8, r.y + r.h/2);
+                    this.ctx.rotate(-Math.PI/2);
+                    this.ctx.fillText(`${innerH_ft}'`, 0, 0);
+                    this.ctx.restore();
+                }
+
+                this.ctx.fillStyle = '#1e293b';
+                this.ctx.font = 'bold 12px sans-serif';
+                this.ctx.fillText(r.label, r.x + r.w/2, r.y + r.h/2);
+
+                this.ctx.font = '10px sans-serif';
+                this.ctx.fillStyle = '#64748b';
+                const displayArea = (r.wallThickness > 0) ? (innerW_ft * innerH_ft) : (wFt * hFt);
+                this.ctx.fillText(`${displayArea.toFixed(1)} sqft`, r.x + r.w/2, r.y + r.h/2 + 14);
+            }
+
+            drawText(t) {
+                this.ctx.fillStyle = t.color;
+                this.ctx.font = `${t.fontSize}px sans-serif`;
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(t.text, t.x, t.y);
+            }
+
+            drawRoomSelection(r) {
+                const handle = 8 / this.scale;
+                this.ctx.fillStyle = '#fff';
+                this.ctx.strokeStyle = '#2563eb';
+                this.ctx.lineWidth = 2 / this.scale;
+                const pts = [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]];
+                pts.forEach(p => {
+                    this.ctx.fillRect(p[0] - handle/2, p[1] - handle/2, handle, handle);
+                    this.ctx.strokeRect(p[0] - handle/2, p[1] - handle/2, handle, handle);
+                });
+            }
+
+            drawMeasureSelection(m) {
+                this.ctx.fillStyle = '#fff';
+                this.ctx.strokeStyle = '#2563eb';
+                this.ctx.lineWidth = 2 / this.scale;
+                const s = 6 / this.scale;
+                [{x:m.x1, y:m.y1}, {x:m.x2, y:m.y2}].forEach(p => {
+                    this.ctx.beginPath();
+                    this.ctx.arc(p.x, p.y, s, 0, Math.PI*2);
+                    this.ctx.fill();
+                    this.ctx.stroke();
+                });
+            }
+
+            drawTextSelection(t) {
+                this.ctx.strokeStyle = '#2563eb';
+                this.ctx.lineWidth = 1 / this.scale;
+                this.ctx.font = `${t.fontSize}px sans-serif`;
+                const m = this.ctx.measureText(t.text);
+                const h = t.fontSize;
+                this.ctx.strokeRect(t.x - m.width/2 - 4, t.y - h/2 - 4, m.width + 8, h + 8);
+            }
+
+            drawMeasurement(m) {
+                const isSelected = this.selectedObject && this.selectedObject.id === m.id;
+                this.ctx.strokeStyle = isSelected ? '#2563eb' : '#ef4444';
+                this.ctx.lineWidth = 2;
+                this.ctx.setLineDash([5, 5]);
+                this.ctx.beginPath();
+                this.ctx.moveTo(m.x1, m.y1);
+                this.ctx.lineTo(m.x2, m.y2);
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+
+                const dotSize = 3 / this.scale;
+                this.ctx.fillStyle = isSelected ? '#2563eb' : '#ef4444';
+                this.ctx.beginPath();
+                this.ctx.arc(m.x1, m.y1, dotSize, 0, Math.PI*2);
+                this.ctx.arc(m.x2, m.y2, dotSize, 0, Math.PI*2);
+                this.ctx.fill();
+
+                const midX = (m.x1 + m.x2) / 2;
+                const midY = (m.y1 + m.y2) / 2;
+                const dx = Math.abs(m.x2 - m.x1);
+                const dy = Math.abs(m.y2 - m.y1);
+                const distPx = Math.sqrt(dx*dx + dy*dy);
+                const distFt = (distPx / this.pixelsPerFoot).toFixed(1);
+
+                this.ctx.save();
+                this.ctx.translate(midX, midY);
+                this.ctx.scale(1/this.scale, 1/this.scale);
+                this.ctx.restore();
+
+                const txt = `${distFt}'`;
+                this.ctx.font = 'bold 12px sans-serif';
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                const tm = this.ctx.measureText(txt);
+                this.ctx.fillRect(midX - tm.width/2 - 2, midY - 6, tm.width + 4, 12);
+                this.ctx.fillStyle = isSelected ? '#2563eb' : '#ef4444';
+                this.ctx.fillText(txt, midX, midY);
+            }
+
+            drawTempMeasureLine() {
+                 const start = this.measureStart;
+                const end = this.measureCurrent;
+                this.ctx.strokeStyle = '#ef4444';
+                this.ctx.lineWidth = 2 / this.scale;
+                this.ctx.setLineDash([5, 5]);
+                this.ctx.beginPath();
+                this.ctx.moveTo(start.x, start.y);
+                this.ctx.lineTo(end.x, end.y);
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+
+                const dist = Math.hypot(end.x - start.x, end.y - start.y);
+                const distFt = (dist / this.pixelsPerFoot).toFixed(1);
+                this.ctx.fillStyle = '#ef4444';
+                this.ctx.font = 'bold 12px sans-serif';
+                this.ctx.fillText(`${distFt} ft`, (start.x+end.x)/2, (start.y+end.y)/2);
+            }
+
+            drawGrid(w, h) {
+                const topLeft = this.screenToWorld(0, 0);
+                const botRight = this.screenToWorld(w, h);
+                const startX = this.snap(topLeft.x) - this.gridSize;
+                const startY = this.snap(topLeft.y) - this.gridSize;
+                const endX = botRight.x + this.gridSize;
+                const endY = botRight.y + this.gridSize;
+
+                this.ctx.strokeStyle = '#e2e8f0';
+                this.ctx.lineWidth = 1 / this.scale;
+                this.ctx.beginPath();
+                for (let x = startX; x <= endX; x += this.gridSize) {
+                    this.ctx.moveTo(x, startY);
+                    this.ctx.lineTo(x, endY);
+                }
+                for (let y = startY; y <= endY; y += this.gridSize) {
+                    this.ctx.moveTo(startX, y);
+                    this.ctx.lineTo(endX, y);
+                }
+                this.ctx.stroke();
+            }
+
+            drawRulers(w, h) {
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.fillRect(0, 0, w, RULER_SIZE);
+                this.ctx.fillRect(0, 0, RULER_SIZE, h);
+
+                this.ctx.strokeStyle = '#cbd5e1';
+                this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                this.ctx.moveTo(RULER_SIZE, RULER_SIZE);
+                this.ctx.lineTo(w, RULER_SIZE);
+                this.ctx.moveTo(RULER_SIZE, RULER_SIZE);
+                this.ctx.lineTo(RULER_SIZE, h);
+                this.ctx.stroke();
+
+                this.ctx.fillStyle = '#64748b';
+                this.ctx.font = '9px sans-serif';
+                this.ctx.textAlign = 'center';
+
+                const startX = RULER_SIZE;
+                const endX = w;
+                const pxPerFt = this.pixelsPerFoot * this.scale;
+                let stepFt = 1;
+                if (pxPerFt < 10) stepFt = 5;
+                if (pxPerFt < 4) stepFt = 10;
+
+                const startWorldX = (startX - this.panX) / this.scale / this.pixelsPerFoot;
+                const firstFoot = Math.ceil(startWorldX / stepFt) * stepFt;
+
+                for (let ft = firstFoot; ; ft += stepFt) {
+                    const wx = ft * this.pixelsPerFoot;
+                    const sx = wx * this.scale + this.panX;
+                    if (sx > endX) break;
+                    if (sx < startX) continue;
+
+                    const isMajor = ft % (stepFt*5) === 0;
+                    const tickH = isMajor ? 8 : 4;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(sx, RULER_SIZE);
+                    this.ctx.lineTo(sx, RULER_SIZE - tickH);
+                    this.ctx.stroke();
+                    if (isMajor || pxPerFt > 30) this.ctx.fillText(ft, sx, 12);
+                }
+
+                const startY = RULER_SIZE;
+                const endY = h;
+                const startWorldY = (startY - this.panY) / this.scale / this.pixelsPerFoot;
+                const firstFootY = Math.ceil(startWorldY / stepFt) * stepFt;
+
+                this.ctx.textAlign = 'right';
+                this.ctx.textBaseline = 'middle';
+
+                for (let ft = firstFootY; ; ft += stepFt) {
+                    const wy = ft * this.pixelsPerFoot;
+                    const sy = wy * this.scale + this.panY;
+                    if (sy > endY) break;
+                    if (sy < startY) continue;
+
+                    const isMajor = ft % (stepFt*5) === 0;
+                    const tickW = isMajor ? 8 : 4;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(RULER_SIZE, sy);
+                    this.ctx.lineTo(RULER_SIZE - tickW, sy);
+                    this.ctx.stroke();
+                    if (isMajor || pxPerFt > 30) this.ctx.fillText(ft, 22, sy);
+                }
+
+                if (this.mousePos.x > RULER_SIZE && this.mousePos.y > RULER_SIZE) {
+                    this.ctx.strokeStyle = '#ef4444';
+                    this.ctx.lineWidth = 1;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(this.mousePos.x, RULER_SIZE);
+                    this.ctx.lineTo(this.mousePos.x, RULER_SIZE - 15);
+                    this.ctx.stroke();
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(RULER_SIZE, this.mousePos.y);
+                    this.ctx.lineTo(RULER_SIZE - 15, this.mousePos.y);
+                    this.ctx.stroke();
+                }
+            }
+
+            downloadPlan() {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = this.canvas.width;
+                tempCanvas.height = this.canvas.height;
+                const originalCtx = this.ctx;
+                const originalCanvas = this.canvas;
+                this.canvas = tempCanvas;
+                this.ctx = tempCanvas.getContext('2d');
+
+                this.draw(true);
+
+                this.ctx.font = 'bold 24px sans-serif';
+                this.ctx.fillStyle = '#0f172a';
+                this.ctx.textAlign = 'left';
+                this.ctx.textBaseline = 'top';
+                const title = this.titleInput.value || "Untitled Project";
+                this.ctx.fillText(title, 40, 40);
+                this.ctx.font = '14px sans-serif';
+                this.ctx.fillStyle = '#64748b';
+                this.ctx.fillText(new Date().toLocaleDateString(), 40, 70);
+
+                const link = document.createElement('a');
+                link.download = `${title.replace(/\s+/g, '_')}.png`;
+                link.href = tempCanvas.toDataURL('image/png');
+                link.click();
+
+                this.canvas = originalCanvas;
+                this.ctx = originalCtx;
+                this.draw();
+            }
+        }
+
+        const app = new FloorPlanApp();
+    </script>
+</body>
+</html>
